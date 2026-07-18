@@ -13,21 +13,26 @@ jobs:
       - name: Checkout kode
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17
+      # Proyek ini pakai AGP 9.1.1 + compileSdk 36 (lihat gradle/libs.versions.toml),
+      # yang butuh JDK 21 — JDK 17 akan gagal build dengan error semacam
+      # "Dependency requires at least JVM runtime version 21".
+      - name: Setup JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       # Proyek ini belum menyertakan Gradle Wrapper (gradlew / gradle-wrapper.jar),
       # jadi kita pakai Gradle resmi lewat action ini alih-alih ./gradlew.
+      # gradle-version: "current" -> otomatis pakai rilis stabil terbaru,
+      # supaya tidak perlu update angka versi manual tiap kali Gradle rilis baru.
       # Begitu kamu buka project ini di Android Studio sekali saja, Android
       # Studio akan otomatis membuatkan gradlew — setelah itu commit filenya
       # dan workflow ini bisa disederhanakan pakai ./gradlew seperti biasa.
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "9.3.1"
+          gradle-version: "current"
 
       - name: Buat file .env dari GitHub Secrets
         run: |
@@ -45,10 +50,23 @@ jobs:
             -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Build APK debug
-        run: gradle assembleDebug
+        # --stacktrace supaya kalau gagal lagi, log di tab Actions langsung
+        # menunjukkan baris error yang jelas, bukan pesan generik.
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK sebagai artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: smart-meta-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload log build kalau gagal
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: |
+            **/build/reports/**
+            **/build/outputs/logs/**
+          if-no-files-found: ignore
