@@ -42,6 +42,8 @@ import id.teladanbarat.smartmeta.ui.components.SmartMetaBottomNav
 import id.teladanbarat.smartmeta.ui.components.SmartMetaTopBar
 import id.teladanbarat.smartmeta.ui.components.StatusPill
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -120,9 +122,10 @@ fun WargaMapTab(profile: Profile) {
             perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (granted) {
             try {
-                locationClient.lastLocation.addOnSuccessListener { loc ->
-                    if (loc != null) myLocation = GeoPoint(loc.latitude, loc.longitude)
-                }
+                locationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
+                    .addOnSuccessListener { loc ->
+                        if (loc != null) myLocation = GeoPoint(loc.latitude, loc.longitude)
+                    }
             } catch (e: SecurityException) { /* permission dicabut di tengah jalan, abaikan */ }
         } else {
             Toast.makeText(context, "Izin lokasi ditolak. Peta memakai titik default.", Toast.LENGTH_SHORT).show()
@@ -134,9 +137,21 @@ fun WargaMapTab(profile: Profile) {
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (hasFine) {
             try {
-                locationClient.lastLocation.addOnSuccessListener { loc ->
-                    if (loc != null) myLocation = GeoPoint(loc.latitude, loc.longitude)
-                }
+                // getCurrentLocation() memaksa ambil fix GPS baru, BUKAN lastLocation()
+                // yang bisa mengembalikan null kalau belum ada lokasi ter-cache
+                // sebelumnya (kasus umum di HP yang baru pertama kali buka app —
+                // ini penyebab peta selalu jatuh ke titik default meski izin sudah ON).
+                locationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
+                    .addOnSuccessListener { loc ->
+                        if (loc != null) {
+                            myLocation = GeoPoint(loc.latitude, loc.longitude)
+                        } else {
+                            Toast.makeText(context, "Tidak bisa ambil GPS. Pastikan lokasi HP aktif & coba di ruang terbuka.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    .addOnFailureListener {
+                        Toast.makeText(context, "Gagal ambil lokasi: ${it.message}", Toast.LENGTH_SHORT).show()
+                    }
             } catch (e: SecurityException) { /* abaikan */ }
         } else {
             locationPermissionLauncher.launch(
