@@ -531,6 +531,16 @@ fun PetugasAbsensiTab(profile: Profile) {
     val zonasList by SupabaseService.zonas.collectAsState()
     val myZone = zonasList.firstOrNull { it.id == profile.zonaId }
 
+    // Cek apakah waktu sekarang masih dalam jam kerja yang di-set admin di
+    // dashboard. Kalau admin belum pernah set (kolomnya kosong/null), pakai
+    // jam kerja default 07:00–15:00 (sama seperti nilai default di form
+    // dashboard) supaya tetap ada batasan yang wajar.
+    val isWithinWorkHours = remember(profile.jamKerjaMulai, profile.jamKerjaSelesai) {
+        checkWithinWorkHours(profile.jamKerjaMulai, profile.jamKerjaSelesai)
+    }
+    val jamMulaiDisplay = profile.jamKerjaMulai?.take(5) ?: "07:00"
+    val jamSelesaiDisplay = profile.jamKerjaSelesai?.take(5) ?: "15:00"
+
     val locationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -566,6 +576,42 @@ fun PetugasAbsensiTab(profile: Profile) {
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 textAlign = TextAlign.Center
             )
+        }
+
+        if (!isWithinWorkHours) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                "Di luar jam kerja",
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                "Absensi hanya bisa dilakukan pukul $jamMulaiDisplay–$jamSelesaiDisplay. Hubungi admin kalau jadwal ini salah.",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         item {
@@ -641,6 +687,10 @@ fun PetugasAbsensiTab(profile: Profile) {
             // Submit Absensi button
             Button(
                 onClick = {
+                    if (!isWithinWorkHours) {
+                        Toast.makeText(context, "Di luar jam kerja ($jamMulaiDisplay–$jamSelesaiDisplay). Absensi ditolak.", Toast.LENGTH_LONG).show()
+                        return@Button
+                    }
                     if (capturedPhotoFile == null) {
                         Toast.makeText(context, "Ambil selfie terlebih dahulu!", Toast.LENGTH_SHORT).show()
                         return@Button
@@ -704,15 +754,52 @@ fun PetugasAbsensiTab(profile: Profile) {
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp).padding(horizontal = 16.dp),
                 shape = RoundedCornerShape(12.dp),
-                enabled = !isLoading
+                enabled = !isLoading && isWithinWorkHours
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                } else if (!isWithinWorkHours) {
+                    Text("Di Luar Jam Kerja", fontWeight = FontWeight.Bold)
                 } else {
                     Text("Kirim Absensi Kehadiran", fontWeight = FontWeight.Bold)
                 }
             }
         }
+    }
+}
+
+/** true kalau waktu sekarang (di HP petugas) ada di antara jam_kerja_mulai
+ * dan jam_kerja_selesai yang di-set admin. Formatnya dari Postgres bisa
+ * "HH:mm:ss" atau "HH:mm", jadi diambil jam & menitnya saja lewat parsing
+ * manual (BUKAN java.time.LocalTime, karena itu baru native tersedia mulai
+ * Android 8.0/API 26 — app ini minSdk 24, jadi wajib hindari supaya tidak
+ * crash di HP Android 7). Kalau admin belum pernah set (null), pakai
+ * default 07:00–15:00. */
+fun checkWithinWorkHours(mulai: String?, selesai: String?): Boolean {
+    fun toMinutes(raw: String): Int? {
+        val parts = raw.split(":")
+        val h = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val m = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        return h * 60 + m
+    }
+
+    return try {
+        val startMin = toMinutes(mulai ?: "07:00") ?: 7 * 60
+        val endMin = toMinutes(selesai ?: "15:00") ?: 15 * 60
+        val cal = java.util.Calendar.getInstance()
+        val nowMin = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+
+        if (startMin <= endMin) {
+            nowMin in startMin..endMin
+        } else {
+            // Shift lewat tengah malam (mis. 22:00–06:00)
+            nowMin >= startMin || nowMin <= endMin
+        }
+    } catch (e: Exception) {
+        // Kalau format waktu di database tidak terduga, jangan blokir petugas
+        // gara-gara bug parsing — lebih aman izinkan daripada bikin semua
+        // petugas tidak bisa absen sama sekali.
+        true
     }
 }
 
