@@ -31,9 +31,8 @@ jobs:
 
       - name: Buat file .env dari GitHub Secrets
         run: |
-          mkdir -p app
-          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> app/.env
-          echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> app/.env
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+          echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
 
       - name: Generate debug.keystore
         # build.gradle.kts mengarahkan signing config debug ke file ini di root
