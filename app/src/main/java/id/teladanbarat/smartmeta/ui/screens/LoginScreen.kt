@@ -1,9 +1,9 @@
 package id.teladanbarat.smartmeta.ui.screens
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -19,79 +19,98 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import id.teladanbarat.smartmeta.data.PetugasJenis
 import id.teladanbarat.smartmeta.data.Profile
 import id.teladanbarat.smartmeta.data.SupabaseService
-import id.teladanbarat.smartmeta.data.UserRole
+import id.teladanbarat.smartmeta.ui.theme.ThemeToggleButton
 import kotlinx.coroutines.launch
 
+/**
+ * Layar login SMART META.
+ *
+ * SENGAJA tidak ada opsi daftar akun sendiri (signup) di sini — akun
+ * petugas & warga hanya boleh dibuat oleh admin lewat dashboard, supaya
+ * data siapa-berperan-apa selalu terkontrol dan tidak ada orang luar yang
+ * bisa mendaftar sendiri jadi "petugas" misalnya.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     onLoginSuccess: (Profile) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
-    var isRegisterMode by remember { mutableStateOf(false) }
 
-    // Inputs
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var nama by remember { mutableStateOf("") }
-    var noHp by remember { mutableStateOf("") }
-    var alamat by remember { mutableStateOf("") }
-    var selectedRole by remember { mutableStateOf(UserRole.WARGA) }
-    var selectedJenisPetugas by remember { mutableStateOf(PetugasJenis.MELATI) }
-    var selectedZonaId by remember { mutableStateOf("z-1") } // Default Teladan Barat Utara
-
+    var passwordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val scrollState = rememberScrollState()
-    val zonas by SupabaseService.zonas.collectAsState()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        // Toggle tema pojok kanan atas, tetap bisa diakses walau belum login
+        Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp)) {
+            ThemeToggleButton()
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp)
+                .padding(horizontal = 28.dp)
                 .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(56.dp))
 
-            // Logo Header
-            Icon(
-                imageVector = Icons.Default.DeleteSweep,
-                contentDescription = "SMART META Logo",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(80.dp)
-            )
+            // Lencana logo bulat dengan aksen warna signal amber
+            Box(
+                modifier = Modifier
+                    .size(84.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteSweep,
+                    contentDescription = "SMART META",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(42.dp)
+                )
+            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Text(
                 text = "SMART META",
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                ),
-                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center
             )
 
-            Text(
-                text = "Kelurahan Teladan Barat",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                textAlign = TextAlign.Center
-            )
+            Spacer(modifier = Modifier.height(4.dp))
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "LIVE OPS · KELURAHAN TELADAN BARAT",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
 
             // Indikator status konfigurasi Supabase — TIDAK ADA mode demo/offline.
             // Kalau belum terkonfigurasi, login memang harus gagal (bukan jalan dengan data palsu).
@@ -100,19 +119,19 @@ fun LoginScreen(
                     containerColor = if (!SupabaseService.isConfigured) {
                         MaterialTheme.colorScheme.errorContainer
                     } else {
-                        MaterialTheme.colorScheme.primaryContainer
+                        MaterialTheme.colorScheme.surfaceVariant
                     }
                 ),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(20.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = if (!SupabaseService.isConfigured) Icons.Default.CloudOff else Icons.Default.CloudQueue,
                         contentDescription = "Connection State",
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(15.dp),
                         tint = if (!SupabaseService.isConfigured) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -125,301 +144,133 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Error Display
             if (errorMessage != null) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                     modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text(
-                        text = errorMessage!!,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(16.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = errorMessage!!,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
 
-            if (!isRegisterMode) {
-                // LOGIN INTERFACE
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Email") },
-                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Email") },
+                leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary
                 )
+            )
 
-                Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Password") },
-                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Button(
-                    onClick = {
-                        if (email.isBlank() || password.isBlank()) {
-                            errorMessage = "Email dan password wajib diisi"
-                            return@Button
-                        }
-                        isLoading = true
-                        errorMessage = null
-                        coroutineScope.launch {
-                            try {
-                                val profile = SupabaseService.login(email, password)
-                                isLoading = false
-                                onLoginSuccess(profile)
-                            } catch (e: Exception) {
-                                isLoading = false
-                                errorMessage = if (!SupabaseService.isConfigured) {
-                                    "Aplikasi belum terhubung ke server (SUPABASE_URL/ANON_KEY belum diisi)."
-                                } else {
-                                    "Login gagal: ${e.message ?: "Email atau password salah."}"
-                                }
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = !isLoading
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                    } else {
-                        Text("Masuk", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "Pendaftaran akun baru dinonaktifkan",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-            } else {
-                // REGISTRATION INTERFACE
-                OutlinedTextField(
-                    value = nama,
-                    onValueChange = { nama = it },
-                    label = { Text("Nama Lengkap") },
-                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = "Nama") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Email") },
-                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Password") },
-                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = noHp,
-                    onValueChange = { noHp = it },
-                    label = { Text("Nomor HP") },
-                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = "Phone") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = alamat,
-                    onValueChange = { alamat = it },
-                    label = { Text("Alamat Tinggal") },
-                    leadingIcon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Role Selection
-                Text(
-                    text = "Pilih Peran (Role)",
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        RadioButton(
-                            selected = selectedRole == UserRole.WARGA,
-                            onClick = { selectedRole = UserRole.WARGA }
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password") },
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (passwordVisible) "Sembunyikan password" else "Tampilkan password"
                         )
-                        Text("Warga")
                     }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        RadioButton(
-                            selected = selectedRole == UserRole.PETUGAS,
-                            onClick = { selectedRole = UserRole.PETUGAS }
-                        )
-                        Text("Petugas")
-                    }
-                }
-
-                if (selectedRole == UserRole.PETUGAS) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Jenis Petugas",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            RadioButton(
-                                selected = selectedJenisPetugas == PetugasJenis.MELATI,
-                                onClick = { selectedJenisPetugas = PetugasJenis.MELATI }
-                            )
-                            Text("Melati (Kompos)")
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            RadioButton(
-                                selected = selectedJenisPetugas == PetugasJenis.BESTARI,
-                                onClick = { selectedJenisPetugas = PetugasJenis.BESTARI }
-                            )
-                            Text("Bestari (Anorganik)")
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Zona Penugasan / Wilayah",
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                },
+                visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary
                 )
+            )
 
-                // Simple Dropdown-like selector using RadioButtons for robustness
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    zonas.forEach { zona ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                        ) {
-                            RadioButton(
-                                selected = selectedZonaId == zona.id,
-                                onClick = { selectedZonaId = zona.id ?: "z-1" }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text(zona.namaZona, fontWeight = FontWeight.SemiBold)
-                                Text(zona.deskripsi ?: "", fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
-                            }
-                        }
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = {
+                    if (email.isBlank() || password.isBlank()) {
+                        errorMessage = "Email dan password wajib diisi"
+                        return@Button
                     }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Button(
-                    onClick = {
-                        if (nama.isBlank() || email.isBlank() || password.isBlank()) {
-                            errorMessage = "Nama, Email, dan Password wajib diisi!"
-                            return@Button
-                        }
-                        isLoading = true
-                        errorMessage = null
-                        coroutineScope.launch {
-                            val profile = SupabaseService.signUp(
-                                email = email,
-                                password = password,
-                                nama = nama,
-                                role = selectedRole,
-                                noHp = noHp,
-                                alamat = alamat,
-                                jenisPetugas = if (selectedRole == UserRole.PETUGAS) selectedJenisPetugas else null,
-                                zonaId = selectedZonaId
-                            )
+                    isLoading = true
+                    errorMessage = null
+                    coroutineScope.launch {
+                        try {
+                            val profile = SupabaseService.login(email, password)
                             isLoading = false
-                            if (profile != null) {
-                                onLoginSuccess(profile)
+                            onLoginSuccess(profile)
+                        } catch (e: Exception) {
+                            isLoading = false
+                            errorMessage = if (!SupabaseService.isConfigured) {
+                                "Aplikasi belum terhubung ke server (SUPABASE_URL/ANON_KEY belum diisi)."
                             } else {
-                                errorMessage = "Gagal mendaftar, coba email lain."
+                                "Login gagal: ${e.message ?: "Email atau password salah."}"
                             }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = !isLoading
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                    } else {
-                        Text("Daftar & Masuk", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                TextButton(onClick = { isRegisterMode = false }) {
-                    Text("Sudah punya akun? Masuk")
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+                enabled = !isLoading,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(22.dp),
+                        strokeWidth = 2.5.dp
+                    )
+                } else {
+                    Text("Masuk", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 }
             }
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Akun hanya dibuat oleh admin kelurahan",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(56.dp))
         }
     }
 }

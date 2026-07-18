@@ -73,6 +73,7 @@ fun WargaScreen(
                     }
                 },
                 actions = {
+                    id.teladanbarat.smartmeta.ui.theme.ThemeToggleButton()
                     IconButton(onClick = onLogout) {
                         Icon(Icons.Default.Logout, contentDescription = "Keluar")
                     }
@@ -864,6 +865,7 @@ fun WargaBankSampahTab(profile: Profile) {
 // ------------------- TAB 4: PESAN CHAT REALTIME -------------------
 @Composable
 fun WargaChatTab(profile: Profile) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val allChats by SupabaseService.chats.collectAsState()
     val allProfiles by SupabaseService.profiles.collectAsState()

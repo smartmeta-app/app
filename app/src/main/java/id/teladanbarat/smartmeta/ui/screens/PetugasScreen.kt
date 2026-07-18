@@ -74,6 +74,7 @@ fun PetugasScreen(
                     }
                 },
                 actions = {
+                    id.teladanbarat.smartmeta.ui.theme.ThemeToggleButton()
                     IconButton(onClick = onLogout) {
                         Icon(Icons.Default.Logout, contentDescription = "Keluar")
                     }
@@ -896,6 +897,7 @@ fun PetugasLaporanTab(profile: Profile) {
 // ------------------- TAB 4: CHAT DENGAN WARGA / REALTIME -------------------
 @Composable
 fun PetugasChatTab(profile: Profile) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val allChats by SupabaseService.chats.collectAsState()
     val allProfiles by SupabaseService.profiles.collectAsState()
