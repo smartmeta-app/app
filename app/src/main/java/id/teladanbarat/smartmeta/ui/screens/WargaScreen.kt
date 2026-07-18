@@ -1,0 +1,1106 @@
+package id.teladanbarat.smartmeta.ui.screens
+
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import coil.compose.rememberAsyncImagePainter
+import id.teladanbarat.smartmeta.data.*
+import com.google.android.gms.location.LocationServices
+import kotlinx.coroutines.launch
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WargaScreen(
+    profile: Profile,
+    onLogout: () -> Unit
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var activeTab by remember { mutableStateOf(0) } // 0: Map & Officers, 1: Buat Laporan, 2: Bank Sampah, 3: Pesan Chat, 4: Notifikasi
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("SMART META Warga", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(
+                            text = "${profile.nama} | Saldo: ${profile.poinSaldo} Poin",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onLogout) {
+                        Icon(Icons.Default.Logout, contentDescription = "Keluar")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
+        },
+        bottomBar = {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp
+            ) {
+                NavigationBarItem(
+                    selected = activeTab == 0,
+                    onClick = { activeTab = 0 },
+                    icon = { Icon(Icons.Default.Map, contentDescription = "Peta Petugas") },
+                    label = { Text("Peta", fontSize = 11.sp) }
+                )
+                NavigationBarItem(
+                    selected = activeTab == 1,
+                    onClick = { activeTab = 1 },
+                    icon = { Icon(Icons.Default.ReportProblem, contentDescription = "Buat Laporan") },
+                    label = { Text("Lapor", fontSize = 11.sp) }
+                )
+                NavigationBarItem(
+                    selected = activeTab == 2,
+                    onClick = { activeTab = 2 },
+                    icon = { Icon(Icons.Default.Savings, contentDescription = "Bank Sampah") },
+                    label = { Text("Bank", fontSize = 11.sp) }
+                )
+                NavigationBarItem(
+                    selected = activeTab == 3,
+                    onClick = { activeTab = 3 },
+                    icon = { Icon(Icons.Default.Chat, contentDescription = "Pesan") },
+                    label = { Text("Pesan", fontSize = 11.sp) }
+                )
+                NavigationBarItem(
+                    selected = activeTab == 4,
+                    onClick = { activeTab = 4 },
+                    icon = { Icon(Icons.Default.Notifications, contentDescription = "Notifikasi") },
+                    label = { Text("Notif", fontSize = 11.sp) }
+                )
+            }
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            when (activeTab) {
+                0 -> WargaMapTab(profile = profile)
+                1 -> WargaLaporanTab(profile = profile)
+                2 -> WargaBankSampahTab(profile = profile)
+                3 -> WargaChatTab(profile = profile)
+                4 -> WargaNotifikasiTab(profile = profile)
+            }
+        }
+    }
+}
+
+// ------------------- TAB 1: PETA LOKASI PETUGAS TERDEKAT (OSMDROID) -------------------
+@Composable
+fun WargaMapTab(profile: Profile) {
+    val context = LocalContext.current
+    val liveLocations by SupabaseService.lokasiPetugas.collectAsState()
+    val allProfiles by SupabaseService.profiles.collectAsState()
+    val zonasList by SupabaseService.zonas.collectAsState()
+
+    val myZone = zonasList.firstOrNull { it.id == profile.zonaId }
+    val activePetugas = allProfiles.filter { it.role == UserRole.PETUGAS && it.zonaId == profile.zonaId }
+    var mapLoadError by remember { mutableStateOf(false) }
+
+    // Init osmdroid UserAgent
+    LaunchedEffect(Unit) {
+        Configuration.getInstance().userAgentValue = context.packageName
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Lacak Petugas Kebersihan Terdekat",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    text = "Menampilkan petugas aktif di Zona Anda: ${myZone?.namaZona ?: "Semua Zona"}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+        ) {
+            if (!mapLoadError) {
+                AndroidView(
+                    factory = { ctx ->
+                        try {
+                            MapView(ctx).apply {
+                                setTileSource(TileSourceFactory.MAPNIK)
+                                setMultiTouchControls(true)
+                                controller.setZoom(16.5)
+
+                                val zoneLat = myZone?.latitude ?: -6.1751
+                                val zoneLng = myZone?.longitude ?: 106.8650
+                                controller.setCenter(GeoPoint(zoneLat, zoneLng))
+                            }
+                        } catch (e: Exception) {
+                            mapLoadError = true
+                            MapView(ctx)
+                        }
+                    },
+                    update = { mapView ->
+                        try {
+                            mapView.overlays.clear()
+
+                            val zoneLat = myZone?.latitude ?: -6.1751
+                            val zoneLng = myZone?.longitude ?: 106.8650
+                            val zoneMarker = Marker(mapView).apply {
+                                position = GeoPoint(zoneLat, zoneLng)
+                                title = "Pusat Zona: ${myZone?.namaZona ?: "Anda"}"
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            }
+                            mapView.overlays.add(zoneMarker)
+
+                            liveLocations.forEach { loc ->
+                                val petProfile = activePetugas.firstOrNull { it.id == loc.petugasId }
+                                if (petProfile != null) {
+                                    val marker = Marker(mapView).apply {
+                                        position = GeoPoint(loc.latitude, loc.longitude)
+                                        title = "${petProfile.nama}\nJenis: ${petProfile.jenisPetugas?.name}"
+                                        subDescription = "HP: ${petProfile.noHp}"
+                                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                    }
+                                    mapView.overlays.add(marker)
+                                }
+                            }
+                            mapView.invalidate()
+                        } catch (e: Exception) {
+                            mapLoadError = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color(0xFFE2E8F0)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                        Icon(Icons.Default.Explore, contentDescription = "Compass", modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Visualisasi Koordinat Peta Aktif",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Pusat Wilayah: ${myZone?.namaZona} (${myZone?.latitude}, ${myZone?.longitude})", fontSize = 13.sp)
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Daftar Petugas Aktif terlacak:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+
+                        activePetugas.forEach { pet ->
+                            val loc = liveLocations.firstOrNull { it.petugasId == pet.id }
+                            if (loc != null) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                                ) {
+                                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Engineering, contentDescription = "Petugas", tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(pet.nama, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                            Text("Lokasi GPS: ${loc.latitude}, ${loc.longitude}", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+
+// ------------------- TAB 2: BUAT LAPORAN WARGA (FOTO & GEOTAGGING) -------------------
+@Composable
+fun WargaLaporanTab(profile: Profile) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var showCamera by remember { mutableStateOf(false) }
+    var capturedPhotoFile by remember { mutableStateOf<File?>(null) }
+    var jenisLaporan by remember { mutableStateOf("") }
+    var deskripsi by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+
+    val locationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
+    if (showCamera) {
+        CameraView(
+            isFrontCamera = false,
+            onImageCaptured = { file ->
+                capturedPhotoFile = file
+                showCamera = false
+            },
+            onClose = { showCamera = false }
+        )
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Text(
+                text = "Laporkan Masalah Kebersihan",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
+        }
+
+        item {
+            OutlinedTextField(
+                value = jenisLaporan,
+                onValueChange = { jenisLaporan = it },
+                label = { Text("Jenis Laporan / Masalah") },
+                placeholder = { Text("mis: Sampah Menumpuk, Salokan Tersumbat") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+
+        item {
+            OutlinedTextField(
+                value = deskripsi,
+                onValueChange = { deskripsi = it },
+                label = { Text("Detail Deskripsi") },
+                placeholder = { Text("Jelaskan rincian dan lokasi pasti tumpukan sampah...") },
+                modifier = Modifier.fillMaxWidth().height(120.dp),
+                shape = RoundedCornerShape(12.dp),
+                maxLines = 5
+            )
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().height(200.dp).clickable { showCamera = true },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(1.dp)
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (capturedPhotoFile != null) {
+                        Image(
+                            painter = rememberAsyncImagePainter(model = capturedPhotoFile),
+                            contentDescription = "Foto Bukti Laporan",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.AddPhotoAlternate,
+                                contentDescription = "Add Photo",
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Klik untuk Ambil Foto Bukti", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Button(
+                onClick = {
+                    if (jenisLaporan.isBlank() || capturedPhotoFile == null) {
+                        Toast.makeText(context, "Masalah & foto bukti wajib dilampirkan!", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    isLoading = true
+
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                        Toast.makeText(context, "Izin lokasi diperlukan untuk mengirim laporan warga.", Toast.LENGTH_SHORT).show()
+                        isLoading = false
+                        return@Button
+                    }
+
+                    try {
+                        locationClient.lastLocation.addOnSuccessListener { location ->
+                            val lat = location?.latitude
+                            val lng = location?.longitude
+
+                            coroutineScope.launch {
+                                try {
+                                    val photoBytes = capturedPhotoFile!!.readBytes()
+                                    val photoUrl = SupabaseService.uploadPhoto("foto-laporan", "lap_warga_${profile.id}_${System.currentTimeMillis()}.jpg", photoBytes)
+
+                                    val newLaporan = Laporan(
+                                        pelaporId = profile.id,
+                                        jenis = jenisLaporan,
+                                        deskripsi = deskripsi,
+                                        fotoUrl = photoUrl,
+                                        latitude = lat,
+                                        longitude = lng,
+                                        status = LaporanStatus.BARU
+                                    )
+
+                                    SupabaseService.submitLaporan(newLaporan)
+                                    isLoading = false
+                                    Toast.makeText(context, "Laporan Anda berhasil dikirim ke petugas!", Toast.LENGTH_LONG).show()
+                                    jenisLaporan = ""
+                                    deskripsi = ""
+                                    capturedPhotoFile = null
+                                } catch (e: Exception) {
+                                    isLoading = false
+                                    Toast.makeText(context, "Gagal mengirim laporan: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }.addOnFailureListener {
+                            isLoading = false
+                        }
+                    } catch (e: Exception) {
+                        isLoading = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                enabled = !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                } else {
+                    Text("Kirim Laporan Kebersihan", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+
+// ------------------- TAB 3: BANK SAMPAH WARGA (SALDO, TRANSAKSI, SETOR, PENUKARAN, TRANSFER) -------------------
+@Composable
+fun WargaBankSampahTab(profile: Profile) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val wasteTypes by SupabaseService.bankSampahJenis.collectAsState()
+    val transactions by SupabaseService.transactions.collectAsState()
+    val allProfiles by SupabaseService.profiles.collectAsState()
+
+    var activeForm by remember { mutableStateOf(0) } // 0: Menu/Tx History, 1: Form Setor, 2: Form Tukar, 3: Form Transfer
+
+    // Setor Sampah Form inputs
+    var selectedWasteTypeId by remember { mutableStateOf("bs-1") }
+    var weightInput by remember { mutableStateOf("") }
+
+    // Redeem Form inputs
+    var selectedRedeemType by remember { mutableStateOf(PoinTxType.TUKAR_SEMBAKO) }
+    var redeemPointsInput by remember { mutableStateOf("") }
+    var redeemDesc by remember { mutableStateOf("") }
+
+    // Transfer Form inputs
+    var targetResidentId by remember { mutableStateOf("") }
+    var transferPointsInput by remember { mutableStateOf("") }
+
+    var isLoading by remember { mutableStateOf(false) }
+
+    when (activeForm) {
+        0 -> {
+            // MAIN BANK SAMPAH HOMEPAGE
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Balance card
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp).fillMaxWidth()) {
+                            Text("SALDO TABUNGAN SAMPAH", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("${profile.poinSaldo} POIN", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Nilai Poin dapat ditukarkan dengan Sembako atau digunakan untuk pembayaran Pajak Daerah.",
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+
+                // Action Menu Grid
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(
+                            onClick = { activeForm = 1 },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 4.dp)) {
+                                Icon(Icons.Default.DeleteSweep, contentDescription = "Setor")
+                                Text("Setor Sampah", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Button(
+                            onClick = { activeForm = 2 },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 4.dp)) {
+                                Icon(Icons.Default.Storefront, contentDescription = "Tukar")
+                                Text("Tukar Poin", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Button(
+                            onClick = { activeForm = 3 },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 4.dp)) {
+                                Icon(Icons.Default.SendToMobile, contentDescription = "Transfer")
+                                Text("Transfer Poin", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                // Transactions Ledger Header
+                item {
+                    Text(
+                        "Riwayat Transaksi Tabungan",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+
+                val myTransactions = transactions.filter { it.wargaId == profile.id }
+
+                if (myTransactions.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                            Text("Belum ada riwayat transaksi tabungan sampah.", color = Color.Gray)
+                        }
+                    }
+                } else {
+                    items(myTransactions) { tx ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val icon = when (tx.tipe) {
+                                        PoinTxType.SETOR_SAMPAH -> Icons.Default.AddCircle
+                                        PoinTxType.TUKAR_SEMBAKO -> Icons.Default.LocalMall
+                                        PoinTxType.BAYAR_PAJAK -> Icons.Default.ReceiptLong
+                                        PoinTxType.TRANSFER_KELUAR -> Icons.Default.ArrowCircleUp
+                                        PoinTxType.TRANSFER_MASUK -> Icons.Default.ArrowCircleDown
+                                    }
+
+                                    val iconColor = when (tx.tipe) {
+                                        PoinTxType.SETOR_SAMPAH, PoinTxType.TRANSFER_MASUK -> Color(0xFF10B981)
+                                        else -> Color(0xFFEF4444)
+                                    }
+
+                                    Icon(icon, contentDescription = tx.tipe.name, tint = iconColor, modifier = Modifier.size(32.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(tx.keterangan ?: tx.tipe.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text(tx.createdAt?.take(10) ?: "Baru saja", fontSize = 11.sp, color = Color.Gray)
+                                    }
+                                }
+
+                                val pointsPrefix = when (tx.tipe) {
+                                    PoinTxType.SETOR_SAMPAH, PoinTxType.TRANSFER_MASUK -> "+"
+                                    else -> "-"
+                                }
+
+                                Text(
+                                    text = "$pointsPrefix${tx.jumlahPoin} Poin",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = if (pointsPrefix == "+") Color(0xFF10B981) else Color(0xFFEF4444)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        1 -> {
+            // FORM SETOR SAMPAH
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { activeForm = 0 }) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    Text("Ajukan Setor Sampah", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+                }
+
+                Text("Pilih Jenis Sampah:", fontWeight = FontWeight.Bold)
+
+                LazyColumn(modifier = Modifier.height(180.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(wasteTypes) { waste ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedWasteTypeId = waste.id ?: "bs-1" }
+                                .background(if (selectedWasteTypeId == waste.id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                .padding(8.dp)
+                        ) {
+                            RadioButton(selected = selectedWasteTypeId == waste.id, onClick = { selectedWasteTypeId = waste.id ?: "bs-1" })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(waste.namaSampah, fontWeight = FontWeight.SemiBold)
+                                Text("${waste.poinPerKg} Poin / Kilogram", fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = weightInput,
+                    onValueChange = { weightInput = it },
+                    label = { Text("Berat Sampah (Kg)") },
+                    placeholder = { Text("mis: 2.5") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Button(
+                    onClick = {
+                        val weight = weightInput.toDoubleOrNull()
+                        if (weight == null || weight <= 0) {
+                            Toast.makeText(context, "Masukkan berat sampah yang valid!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        isLoading = true
+                        val selectedWaste = wasteTypes.firstOrNull { it.id == selectedWasteTypeId } ?: wasteTypes.first()
+                        val calculatedPoints = (selectedWaste.poinPerKg * weight).toInt()
+
+                        val newTx = BankSampahTransaksi(
+                            wargaId = profile.id,
+                            tipe = PoinTxType.SETOR_SAMPAH,
+                            jumlahPoin = calculatedPoints,
+                            beratKg = weight,
+                            jenisSampahId = selectedWaste.id,
+                            keterangan = "Setor ${selectedWaste.namaSampah} ${weight} Kg"
+                        )
+
+                        coroutineScope.launch {
+                            try {
+                                SupabaseService.submitTransaction(newTx)
+                                isLoading = false
+                                Toast.makeText(context, "Setoran dikirim, menunggu verifikasi admin. Estimasi +$calculatedPoints Poin.", Toast.LENGTH_LONG).show()
+                                activeForm = 0
+                                weightInput = ""
+                            } catch (e: Exception) {
+                                isLoading = false
+                                Toast.makeText(context, "Gagal mengirim setoran: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isLoading
+                ) {
+                    if (isLoading) CircularProgressIndicator(color = Color.White) else Text("Kirim Setoran")
+                }
+            }
+        }
+
+        2 -> {
+            // FORM PENUKARAN POIN (TUKAR SEMBAKO ATAU BAYAR PAJAK)
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { activeForm = 0 }) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    Text("Tukarkan Poin Tabungan", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        RadioButton(selected = selectedRedeemType == PoinTxType.TUKAR_SEMBAKO, onClick = { selectedRedeemType = PoinTxType.TUKAR_SEMBAKO })
+                        Text("Tukar Sembako")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        RadioButton(selected = selectedRedeemType == PoinTxType.BAYAR_PAJAK, onClick = { selectedRedeemType = PoinTxType.BAYAR_PAJAK })
+                        Text("Bayar Pajak")
+                    }
+                }
+
+                OutlinedTextField(
+                    value = redeemPointsInput,
+                    onValueChange = { redeemPointsInput = it },
+                    label = { Text("Jumlah Poin yang Ditukarkan") },
+                    placeholder = { Text("mis: 200") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = redeemDesc,
+                    onValueChange = { redeemDesc = it },
+                    label = { Text("Keterangan Tambahan") },
+                    placeholder = { Text("mis: Tukar beras 2 kg / Bayar PBB No. 12") },
+                    modifier = Modifier.fillMaxWidth().height(100.dp),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Button(
+                    onClick = {
+                        val points = redeemPointsInput.toIntOrNull()
+                        if (points == null || points <= 0) {
+                            Toast.makeText(context, "Jumlah poin tidak valid!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (profile.poinSaldo < points) {
+                            Toast.makeText(context, "Saldo Poin Anda tidak mencukupi!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        isLoading = true
+                        val newTx = BankSampahTransaksi(
+                            wargaId = profile.id,
+                            tipe = selectedRedeemType,
+                            jumlahPoin = points,
+                            keterangan = if (selectedRedeemType == PoinTxType.TUKAR_SEMBAKO) "Penukaran Sembako: $redeemDesc" else "Pembayaran Pajak: $redeemDesc"
+                        )
+
+                        coroutineScope.launch {
+                            try {
+                                SupabaseService.submitTransaction(newTx)
+                                isLoading = false
+                                Toast.makeText(context, "Pengajuan penukaran dikirim, menunggu verifikasi admin.", Toast.LENGTH_SHORT).show()
+                                activeForm = 0
+                                redeemPointsInput = ""
+                                redeemDesc = ""
+                            } catch (e: Exception) {
+                                isLoading = false
+                                Toast.makeText(context, "Gagal mengajukan penukaran: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isLoading
+                ) {
+                    if (isLoading) CircularProgressIndicator(color = Color.White) else Text("Tukarkan Poin")
+                }
+            }
+        }
+
+        3 -> {
+            // FORM TRANSFER POIN KE SESAMA WARGA
+            val otherResidents = allProfiles.filter { it.role == UserRole.WARGA && it.id != profile.id }
+
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { activeForm = 0 }) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    Text("Transfer Poin", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+                }
+
+                Text("Pilih Penerima (Warga):", fontWeight = FontWeight.Bold)
+
+                LazyColumn(modifier = Modifier.height(180.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(otherResidents) { res ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { targetResidentId = res.id }
+                                .background(if (targetResidentId == res.id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                .padding(8.dp)
+                        ) {
+                            RadioButton(selected = targetResidentId == res.id, onClick = { targetResidentId = res.id })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(res.nama, fontWeight = FontWeight.SemiBold)
+                                Text(res.noHp ?: "Tidak ada telepon", fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = transferPointsInput,
+                    onValueChange = { transferPointsInput = it },
+                    label = { Text("Jumlah Poin untuk Ditransfer") },
+                    placeholder = { Text("mis: 150") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Button(
+                    onClick = {
+                        val points = transferPointsInput.toIntOrNull()
+                        if (targetResidentId.isEmpty()) {
+                            Toast.makeText(context, "Pilih warga penerima transfer!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (points == null || points <= 0) {
+                            Toast.makeText(context, "Jumlah poin transfer tidak valid!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (profile.poinSaldo < points) {
+                            Toast.makeText(context, "Saldo Poin Anda tidak mencukupi!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        isLoading = true
+                        val targetProfile = otherResidents.firstOrNull { it.id == targetResidentId }
+                        val newTx = BankSampahTransaksi(
+                            wargaId = profile.id,
+                            tipe = PoinTxType.TRANSFER_KELUAR,
+                            jumlahPoin = points,
+                            tujuanWargaId = targetResidentId,
+                            keterangan = "Transfer poin ke ${targetProfile?.nama}"
+                        )
+
+                        coroutineScope.launch {
+                            try {
+                                SupabaseService.submitTransaction(newTx)
+                                isLoading = false
+                                Toast.makeText(context, "Transfer poin berhasil! -$points Poin.", Toast.LENGTH_SHORT).show()
+                                activeForm = 0
+                                transferPointsInput = ""
+                                targetResidentId = ""
+                            } catch (e: Exception) {
+                                isLoading = false
+                                Toast.makeText(context, "Gagal transfer poin: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isLoading
+                ) {
+                    if (isLoading) CircularProgressIndicator(color = Color.White) else Text("Kirim Transfer Poin")
+                }
+            }
+        }
+    }
+}
+
+
+// ------------------- TAB 4: PESAN CHAT REALTIME -------------------
+@Composable
+fun WargaChatTab(profile: Profile) {
+    val coroutineScope = rememberCoroutineScope()
+    val allChats by SupabaseService.chats.collectAsState()
+    val allProfiles by SupabaseService.profiles.collectAsState()
+
+    var activeContact by remember { mutableStateOf<Profile?>(null) }
+    var chatMessageText by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    if (activeContact != null) {
+        val filteredChats = allChats.filter {
+            (it.pengirimId == profile.id && it.penerimaId == activeContact!!.id) ||
+            (it.pengirimId == activeContact!!.id && it.penerimaId == profile.id)
+        }
+
+        LaunchedEffect(filteredChats.size) {
+            if (filteredChats.isNotEmpty()) {
+                listState.animateScrollToItem(filteredChats.size - 1)
+            }
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Chat Header
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(0.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { activeContact = null }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Kembali")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(activeContact!!.nama, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Petugas Kebersihan Kelurahan", fontSize = 12.sp, color = Color.Gray)
+                    }
+                }
+            }
+
+            // Message Bubble list
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(filteredChats) { chat ->
+                    val isMyMsg = chat.pengirimId == profile.id
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = if (isMyMsg) Alignment.CenterEnd else Alignment.CenterStart
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isMyMsg) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
+                            ),
+                            shape = RoundedCornerShape(
+                                topStart = 12.dp,
+                                topEnd = 12.dp,
+                                bottomStart = if (isMyMsg) 12.dp else 0.dp,
+                                bottomEnd = if (isMyMsg) 0.dp else 12.dp
+                            ),
+                            modifier = Modifier.widthIn(max = 280.dp)
+                        ) {
+                            Text(
+                                text = chat.pesan ?: "",
+                                modifier = Modifier.padding(12.dp),
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Chat Send box
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp))
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextField(
+                    value = chatMessageText,
+                    onValueChange = { chatMessageText = it },
+                    placeholder = { Text("Ketik pesan...") },
+                    modifier = Modifier.weight(1f),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    )
+                )
+
+                IconButton(
+                    onClick = {
+                        if (chatMessageText.isNotBlank()) {
+                            val newMsg = ChatPesan(
+                                pengirimId = profile.id,
+                                penerimaId = activeContact!!.id,
+                                pesan = chatMessageText
+                            )
+                            coroutineScope.launch {
+                                try {
+                                    SupabaseService.sendChat(newMsg)
+                                    chatMessageText = ""
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Gagal mengirim pesan: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Icon(
+                        Icons.Default.Send,
+                        contentDescription = "Send",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+    } else {
+        // List of all active officers in the citizen's zone
+        val officersInZone = allProfiles.filter { it.role == UserRole.PETUGAS && it.zonaId == profile.zonaId }
+
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text(
+                text = "Pesan ke Petugas Lapangan",
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            if (officersInZone.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("Belum ada petugas aktif di sektor Anda.", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(officersInZone) { officer ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier.fillMaxWidth().clickable { activeContact = officer },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Engineering,
+                                    contentDescription = "Petugas Avatar",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text(officer.nama, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                    Text("Petugas ${officer.jenisPetugas?.name ?: ""}", fontSize = 12.sp, color = Color.Gray)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// ------------------- TAB 5: BROADCAST NOTIFIKASI DARI KELURAHAN -------------------
+@Composable
+fun WargaNotifikasiTab(profile: Profile) {
+    val broadcastNotif by SupabaseService.notifikasi.collectAsState()
+
+    // Filter notifications: general target (role = warga) OR specific to their zone
+    val filteredNotif = broadcastNotif.filter {
+        (it.targetRole == null || it.targetRole == UserRole.WARGA) &&
+        (it.targetZonaId == null || it.targetZonaId == profile.zonaId)
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(
+                text = "Pengumuman Kelurahan Teladan Barat",
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
+
+        if (filteredNotif.isEmpty()) {
+            item {
+                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Text("Belum ada pengumuman baru untuk Sektor Anda.", color = Color.Gray)
+                }
+            }
+        } else {
+            items(filteredNotif) { notif ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Campaign, contentDescription = "Announcement", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = notif.judul,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = notif.isi,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Dikirim pada: ${notif.createdAt?.take(10) ?: "Hari ini"}",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "SMART META",
+  "description": "Aplikasi Kebersihan SMART META Kelurahan Teladan Barat untuk warga dan petugas Melati & Bestari.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
