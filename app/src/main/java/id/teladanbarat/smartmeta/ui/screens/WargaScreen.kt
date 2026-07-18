@@ -100,16 +100,79 @@ fun WargaMapTab(profile: Profile) {
     val context = LocalContext.current
     val liveLocations by SupabaseService.lokasiPetugas.collectAsState()
     val allProfiles by SupabaseService.profiles.collectAsState()
-    val zonasList by SupabaseService.zonas.collectAsState()
-
-    val myZone = zonasList.firstOrNull { it.id == profile.zonaId }
-    val activePetugas = allProfiles.filter { it.role == UserRole.PETUGAS && it.zonaId == profile.zonaId }
     var mapLoadError by remember { mutableStateOf(false) }
 
-    // Init osmdroid UserAgent
+    // Lokasi warga sungguhan dari GPS HP-nya — dipakai untuk pusat peta dan
+    // menghitung jarak ke tiap petugas. SEBELUMNYA kode ini filter petugas
+    // berdasarkan kecocokan zona_id, padahal dashboard admin tidak punya
+    // form untuk set zona ke akun petugas/warga — jadi begitu salah satu
+    // di-set manual, semua petugas hilang dari peta. Sekarang diganti:
+    // tampilkan SEMUA petugas yang lokasinya sedang live, diurutkan dari
+    // yang paling dekat ke warga (sesuai jarak GPS asli), tidak lagi
+    // bergantung pada zona.
+    var myLocation by remember { mutableStateOf<GeoPoint?>(null) }
+    val locationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        val granted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            try {
+                locationClient.lastLocation.addOnSuccessListener { loc ->
+                    if (loc != null) myLocation = GeoPoint(loc.latitude, loc.longitude)
+                }
+            } catch (e: SecurityException) { /* permission dicabut di tengah jalan, abaikan */ }
+        } else {
+            Toast.makeText(context, "Izin lokasi ditolak. Peta memakai titik default.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     LaunchedEffect(Unit) {
         Configuration.getInstance().userAgentValue = context.packageName
+        val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasFine) {
+            try {
+                locationClient.lastLocation.addOnSuccessListener { loc ->
+                    if (loc != null) myLocation = GeoPoint(loc.latitude, loc.longitude)
+                }
+            } catch (e: SecurityException) { /* abaikan */ }
+        } else {
+            locationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
     }
+
+    // Titik jatuh terakhir kalau GPS warga belum berhasil didapat sama sekali
+    // (misal izin belum diberikan) — dekat Medan, bukan Jakarta seperti kode lama.
+    val fallbackLat = -6.1751
+    val fallbackLng = 106.8650 // TODO: ganti ke koordinat Kelurahan Teladan Barat sungguhan kalau sudah tahu titik pastinya
+    val centerLat = myLocation?.latitude ?: fallbackLat
+    val centerLng = myLocation?.longitude ?: fallbackLng
+
+    val activePetugas = allProfiles.filter { it.role == UserRole.PETUGAS }
+
+    fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
+            kotlin.math.cos(Math.toRadians(lat1)) * kotlin.math.cos(Math.toRadians(lat2)) *
+            kotlin.math.sin(dLon / 2) * kotlin.math.sin(dLon / 2)
+        val c = 2 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1 - a))
+        return r * c
+    }
+
+    // Petugas + jarak ke warga, diurutkan dari yang paling dekat
+    val petugasWithDistance = liveLocations.mapNotNull { loc ->
+        val petProfile = activePetugas.firstOrNull { it.id == loc.petugasId }
+        if (petProfile != null) {
+            val distance = haversineMeters(centerLat, centerLng, loc.latitude, loc.longitude)
+            Triple(petProfile, loc, distance)
+        } else null
+    }.sortedBy { it.third }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Card(
@@ -122,7 +185,12 @@ fun WargaMapTab(profile: Profile) {
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    text = "Menampilkan petugas aktif di Zona Anda: ${myZone?.namaZona ?: "Semua Zona"}",
+                    text = if (petugasWithDistance.isEmpty()) {
+                        "Belum ada petugas yang sedang aktif melacak lokasi."
+                    } else {
+                        val nearest = petugasWithDistance.first()
+                        "Terdekat: ${nearest.first.nama} (~${(nearest.third / 1000).let { if (it < 1) "${nearest.third.toInt()} m" else "${"%.1f".format(it)} km" }})"
+                    },
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -144,10 +212,7 @@ fun WargaMapTab(profile: Profile) {
                                 setTileSource(TileSourceFactory.MAPNIK)
                                 setMultiTouchControls(true)
                                 controller.setZoom(16.5)
-
-                                val zoneLat = myZone?.latitude ?: -6.1751
-                                val zoneLng = myZone?.longitude ?: 106.8650
-                                controller.setCenter(GeoPoint(zoneLat, zoneLng))
+                                controller.setCenter(GeoPoint(centerLat, centerLng))
                             }
                         } catch (e: Exception) {
                             mapLoadError = true
@@ -158,26 +223,28 @@ fun WargaMapTab(profile: Profile) {
                         try {
                             mapView.overlays.clear()
 
-                            val zoneLat = myZone?.latitude ?: -6.1751
-                            val zoneLng = myZone?.longitude ?: 106.8650
-                            val zoneMarker = Marker(mapView).apply {
-                                position = GeoPoint(zoneLat, zoneLng)
-                                title = "Pusat Zona: ${myZone?.namaZona ?: "Anda"}"
-                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            // Marker posisi warga sendiri (titik biru, pusat peta ikut ini)
+                            val myMarker = Marker(mapView).apply {
+                                position = GeoPoint(centerLat, centerLng)
+                                title = if (myLocation != null) "Lokasi Anda" else "Titik Default (izin lokasi belum aktif)"
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                             }
-                            mapView.overlays.add(zoneMarker)
+                            mapView.overlays.add(myMarker)
 
-                            liveLocations.forEach { loc ->
-                                val petProfile = activePetugas.firstOrNull { it.id == loc.petugasId }
-                                if (petProfile != null) {
-                                    val marker = Marker(mapView).apply {
-                                        position = GeoPoint(loc.latitude, loc.longitude)
-                                        title = "${petProfile.nama}\nJenis: ${petProfile.jenisPetugas?.name}"
-                                        subDescription = "HP: ${petProfile.noHp}"
-                                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                    }
-                                    mapView.overlays.add(marker)
+                            // Kalau lokasi warga berubah, geser pusat peta ikut — supaya
+                            // peta selalu berpusat di posisi warga saat ini, bukan diam
+                            // di satu titik zona statis seperti sebelumnya.
+                            mapView.controller.setCenter(GeoPoint(centerLat, centerLng))
+
+                            petugasWithDistance.forEach { (petProfile, loc, distance) ->
+                                val distanceLabel = if (distance < 1000) "${distance.toInt()} m" else "${"%.1f".format(distance / 1000)} km"
+                                val marker = Marker(mapView).apply {
+                                    position = GeoPoint(loc.latitude, loc.longitude)
+                                    title = "${petProfile.nama} (${petProfile.jenisPetugas?.name ?: "-"})"
+                                    subDescription = "Jarak: $distanceLabel · HP: ${petProfile.noHp ?: "-"}"
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                                 }
+                                mapView.overlays.add(marker)
                             }
                             mapView.invalidate()
                         } catch (e: Exception) {
@@ -199,25 +266,23 @@ fun WargaMapTab(profile: Profile) {
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text("Pusat Wilayah: ${myZone?.namaZona} (${myZone?.latitude}, ${myZone?.longitude})", fontSize = 13.sp)
+                        Text("Lokasi Anda: ($centerLat, $centerLng)", fontSize = 13.sp)
 
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Daftar Petugas Aktif terlacak:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
 
-                        activePetugas.forEach { pet ->
-                            val loc = liveLocations.firstOrNull { it.petugasId == pet.id }
-                            if (loc != null) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color.White)
-                                ) {
-                                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Engineering, contentDescription = "Petugas", tint = MaterialTheme.colorScheme.primary)
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column {
-                                            Text(pet.nama, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                            Text("Lokasi GPS: ${loc.latitude}, ${loc.longitude}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                                        }
+                        petugasWithDistance.forEach { (pet, loc, distance) ->
+                            val distanceLabel = if (distance < 1000) "${distance.toInt()} m" else "${"%.1f".format(distance / 1000)} km"
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Engineering, contentDescription = "Petugas", tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(pet.nama, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Text("Jarak: $distanceLabel", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                                     }
                                 }
                             }
