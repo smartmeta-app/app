@@ -37,6 +37,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import coil.compose.rememberAsyncImagePainter
 import id.teladanbarat.smartmeta.data.*
+import id.teladanbarat.smartmeta.ui.components.NavItem
+import id.teladanbarat.smartmeta.ui.components.SmartMetaBottomNav
+import id.teladanbarat.smartmeta.ui.components.SmartMetaTopBar
+import id.teladanbarat.smartmeta.ui.components.StatusPill
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
@@ -59,76 +63,14 @@ fun WargaScreen(
 
     var activeTab by remember { mutableStateOf(0) } // 0: Map & Officers, 1: Buat Laporan, 2: Bank Sampah, 3: Pesan Chat, 4: Notifikasi
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("SMART META Warga", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text(
-                            text = "${profile.nama} | Saldo: ${profile.poinSaldo} Poin",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                        )
-                    }
-                },
-                actions = {
-                    id.teladanbarat.smartmeta.ui.theme.ThemeToggleButton()
-                    IconButton(onClick = onLogout) {
-                        Icon(Icons.Default.Logout, contentDescription = "Keluar")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp
-            ) {
-                NavigationBarItem(
-                    selected = activeTab == 0,
-                    onClick = { activeTab = 0 },
-                    icon = { Icon(Icons.Default.Map, contentDescription = "Peta Petugas") },
-                    label = { Text("Peta", fontSize = 11.sp) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 1,
-                    onClick = { activeTab = 1 },
-                    icon = { Icon(Icons.Default.ReportProblem, contentDescription = "Buat Laporan") },
-                    label = { Text("Lapor", fontSize = 11.sp) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 2,
-                    onClick = { activeTab = 2 },
-                    icon = { Icon(Icons.Default.Savings, contentDescription = "Bank Sampah") },
-                    label = { Text("Bank", fontSize = 11.sp) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 3,
-                    onClick = { activeTab = 3 },
-                    icon = { Icon(Icons.Default.Chat, contentDescription = "Pesan") },
-                    label = { Text("Pesan", fontSize = 11.sp) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 4,
-                    onClick = { activeTab = 4 },
-                    icon = { Icon(Icons.Default.Notifications, contentDescription = "Notifikasi") },
-                    label = { Text("Notif", fontSize = 11.sp) }
-                )
-            }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        SmartMetaTopBar(
+            title = "SMART META Warga",
+            subtitle = "${profile.nama} · Saldo ${profile.poinSaldo} Poin",
+            onLogout = onLogout
+        )
+
+        Box(modifier = Modifier.weight(1f)) {
             when (activeTab) {
                 0 -> WargaMapTab(profile = profile)
                 1 -> WargaLaporanTab(profile = profile)
@@ -137,6 +79,18 @@ fun WargaScreen(
                 4 -> WargaNotifikasiTab(profile = profile)
             }
         }
+
+        SmartMetaBottomNav(
+            items = listOf(
+                NavItem(Icons.Default.Map, "Peta"),
+                NavItem(Icons.Default.ReportProblem, "Lapor"),
+                NavItem(Icons.Default.Savings, "Bank"),
+                NavItem(Icons.Default.Chat, "Pesan"),
+                NavItem(Icons.Default.Notifications, "Notif")
+            ),
+            selectedIndex = activeTab,
+            onSelect = { activeTab = it }
+        )
     }
 }
 
@@ -234,7 +188,7 @@ fun WargaMapTab(profile: Profile) {
                 )
             } else {
                 Box(
-                    modifier = Modifier.fillMaxSize().background(Color(0xFFE2E8F0)),
+                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
@@ -262,7 +216,7 @@ fun WargaMapTab(profile: Profile) {
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column {
                                             Text(pet.nama, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                            Text("Lokasi GPS: ${loc.latitude}, ${loc.longitude}", fontSize = 11.sp, color = Color.Gray)
+                                            Text("Lokasi GPS: ${loc.latitude}, ${loc.longitude}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                                         }
                                     }
                                 }
@@ -551,7 +505,7 @@ fun WargaBankSampahTab(profile: Profile) {
                 if (myTransactions.isEmpty()) {
                     item {
                         Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                            Text("Belum ada riwayat transaksi tabungan sampah.", color = Color.Gray)
+                            Text("Belum ada riwayat transaksi tabungan sampah.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                         }
                     }
                 } else {
@@ -577,15 +531,15 @@ fun WargaBankSampahTab(profile: Profile) {
                                     }
 
                                     val iconColor = when (tx.tipe) {
-                                        PoinTxType.SETOR_SAMPAH, PoinTxType.TRANSFER_MASUK -> Color(0xFF10B981)
-                                        else -> Color(0xFFEF4444)
+                                        PoinTxType.SETOR_SAMPAH, PoinTxType.TRANSFER_MASUK -> MaterialTheme.colorScheme.secondary
+                                        else -> MaterialTheme.colorScheme.error
                                     }
 
                                     Icon(icon, contentDescription = tx.tipe.name, tint = iconColor, modifier = Modifier.size(32.dp))
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column {
                                         Text(tx.keterangan ?: tx.tipe.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Text(tx.createdAt?.take(10) ?: "Baru saja", fontSize = 11.sp, color = Color.Gray)
+                                        Text(tx.createdAt?.take(10) ?: "Baru saja", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                                     }
                                 }
 
@@ -598,7 +552,7 @@ fun WargaBankSampahTab(profile: Profile) {
                                     text = "$pointsPrefix${tx.jumlahPoin} Poin",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
-                                    color = if (pointsPrefix == "+") Color(0xFF10B981) else Color(0xFFEF4444)
+                                    color = if (pointsPrefix == "+") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
                                 )
                             }
                         }
@@ -631,7 +585,7 @@ fun WargaBankSampahTab(profile: Profile) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(waste.namaSampah, fontWeight = FontWeight.SemiBold)
-                                Text("${waste.poinPerKg} Poin / Kilogram", fontSize = 12.sp, color = Color.Gray)
+                                Text("${waste.poinPerKg} Poin / Kilogram", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                             }
                         }
                     }
@@ -795,7 +749,7 @@ fun WargaBankSampahTab(profile: Profile) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(res.nama, fontWeight = FontWeight.SemiBold)
-                                Text(res.noHp ?: "Tidak ada telepon", fontSize = 12.sp, color = Color.Gray)
+                                Text(res.noHp ?: "Tidak ada telepon", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                             }
                         }
                     }
@@ -902,7 +856,7 @@ fun WargaChatTab(profile: Profile) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(activeContact!!.nama, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("Petugas Kebersihan Kelurahan", fontSize = 12.sp, color = Color.Gray)
+                        Text("Petugas Kebersihan Kelurahan", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                     }
                 }
             }
@@ -921,20 +875,21 @@ fun WargaChatTab(profile: Profile) {
                     ) {
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isMyMsg) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
+                                containerColor = if (isMyMsg) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                             ),
                             shape = RoundedCornerShape(
-                                topStart = 12.dp,
-                                topEnd = 12.dp,
-                                bottomStart = if (isMyMsg) 12.dp else 0.dp,
-                                bottomEnd = if (isMyMsg) 0.dp else 12.dp
+                                topStart = 18.dp,
+                                topEnd = 18.dp,
+                                bottomStart = if (isMyMsg) 18.dp else 4.dp,
+                                bottomEnd = if (isMyMsg) 4.dp else 18.dp
                             ),
                             modifier = Modifier.widthIn(max = 280.dp)
                         ) {
                             Text(
                                 text = chat.pesan ?: "",
-                                modifier = Modifier.padding(12.dp),
-                                fontSize = 14.sp
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                fontSize = 14.sp,
+                                color = if (isMyMsg) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -1004,7 +959,7 @@ fun WargaChatTab(profile: Profile) {
 
             if (officersInZone.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("Belum ada petugas aktif di sektor Anda.", color = Color.Gray)
+                    Text("Belum ada petugas aktif di sektor Anda.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                 }
             } else {
                 LazyColumn(
@@ -1029,7 +984,7 @@ fun WargaChatTab(profile: Profile) {
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column {
                                     Text(officer.nama, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    Text("Petugas ${officer.jenisPetugas?.name ?: ""}", fontSize = 12.sp, color = Color.Gray)
+                                    Text("Petugas ${officer.jenisPetugas?.name ?: ""}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                                 }
                             }
                         }
@@ -1068,7 +1023,7 @@ fun WargaNotifikasiTab(profile: Profile) {
         if (filteredNotif.isEmpty()) {
             item {
                 Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text("Belum ada pengumuman baru untuk Sektor Anda.", color = Color.Gray)
+                    Text("Belum ada pengumuman baru untuk Sektor Anda.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                 }
             }
         } else {
@@ -1098,7 +1053,7 @@ fun WargaNotifikasiTab(profile: Profile) {
                         Text(
                             text = "Dikirim pada: ${notif.createdAt?.take(10) ?: "Hari ini"}",
                             fontSize = 11.sp,
-                            color = Color.Gray
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         )
                     }
                 }

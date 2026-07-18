@@ -39,6 +39,10 @@ import androidx.core.content.ContextCompat
 import coil.compose.rememberAsyncImagePainter
 import id.teladanbarat.smartmeta.data.*
 import id.teladanbarat.smartmeta.service.LocationService
+import id.teladanbarat.smartmeta.ui.components.NavItem
+import id.teladanbarat.smartmeta.ui.components.SmartMetaBottomNav
+import id.teladanbarat.smartmeta.ui.components.SmartMetaTopBar
+import id.teladanbarat.smartmeta.ui.components.StatusPill
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.launch
 import java.io.File
@@ -59,71 +63,16 @@ fun PetugasScreen(
     // Track Foreground Service State locally
     var isTrackingEnabled by remember { mutableStateOf(LocationService.isRunning) }
 
-    // Navigation and screen frame
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("SMART META Petugas", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text(
-                            text = "${profile.nama} (${profile.jenisPetugas?.name ?: "Petugas"})",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                        )
-                    }
-                },
-                actions = {
-                    id.teladanbarat.smartmeta.ui.theme.ThemeToggleButton()
-                    IconButton(onClick = onLogout) {
-                        Icon(Icons.Default.Logout, contentDescription = "Keluar")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp
-            ) {
-                NavigationBarItem(
-                    selected = activeTab == 0,
-                    onClick = { activeTab = 0 },
-                    icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-                    label = { Text("Utama", fontSize = 11.sp) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 1,
-                    onClick = { activeTab = 1 },
-                    icon = { Icon(Icons.Default.HowToReg, contentDescription = "Absensi") },
-                    label = { Text("Absen", fontSize = 11.sp) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 2,
-                    onClick = { activeTab = 2 },
-                    icon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Kirim Laporan") },
-                    label = { Text("Lapor", fontSize = 11.sp) }
-                )
-                NavigationBarItem(
-                    selected = activeTab == 3,
-                    onClick = { activeTab = 3 },
-                    icon = { Icon(Icons.Default.Chat, contentDescription = "Chat") },
-                    label = { Text("Chat", fontSize = 11.sp) }
-                )
-            }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
+    // Navigation and screen frame — pakai komponen custom SMART META, bukan
+    // Scaffold + TopAppBar + NavigationBar bawaan template Material biasa.
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        SmartMetaTopBar(
+            title = "SMART META Petugas",
+            subtitle = "${profile.nama} · ${profile.jenisPetugas?.name ?: "Petugas"}",
+            onLogout = onLogout
+        )
+
+        Box(modifier = Modifier.weight(1f)) {
             when (activeTab) {
                 0 -> PetugasDashboardTab(
                     profile = profile,
@@ -135,6 +84,17 @@ fun PetugasScreen(
                 3 -> PetugasChatTab(profile = profile)
             }
         }
+
+        SmartMetaBottomNav(
+            items = listOf(
+                NavItem(Icons.Default.Dashboard, "Utama"),
+                NavItem(Icons.Default.HowToReg, "Absen"),
+                NavItem(Icons.Default.AddPhotoAlternate, "Lapor"),
+                NavItem(Icons.Default.Chat, "Chat")
+            ),
+            selectedIndex = activeTab,
+            onSelect = { activeTab = it }
+        )
     }
 }
 
@@ -234,15 +194,18 @@ fun PetugasDashboardTab(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(12.dp)
+                                    .size(9.dp)
                                     .clip(CircleShape)
-                                    .background(if (isTrackingEnabled) Color.Green else Color.Gray)
+                                    .background(
+                                        if (isTrackingEnabled) MaterialTheme.colorScheme.secondary
+                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
+                                    )
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (isTrackingEnabled) "Melacak (ON)" else "Tidak Melacak (OFF)",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp
+                            StatusPill(
+                                text = if (isTrackingEnabled) "MELACAK" else "TIDAK MELACAK",
+                                color = if (isTrackingEnabled) MaterialTheme.colorScheme.secondary
+                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                             )
                         }
 
@@ -358,7 +321,7 @@ fun PetugasDashboardTab(
                     modifier = Modifier.fillMaxWidth().padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Tidak ada laporan pekerjaan aktif saat ini.", color = Color.Gray)
+                    Text("Tidak ada laporan pekerjaan aktif saat ini.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                 }
             }
         } else {
@@ -377,8 +340,9 @@ fun LaporanItemRow(laporan: Laporan) {
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = Modifier.fillMaxWidth().clickable { isExpanded = !isExpanded }
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -392,29 +356,18 @@ fun LaporanItemRow(laporan: Laporan) {
                     Text(
                         laporan.createdAt?.take(10) ?: "Hari ini",
                         fontSize = 12.sp,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
 
                 val statusColor = when (laporan.status) {
-                    LaporanStatus.BARU -> Color(0xFF3B82F6)
-                    LaporanStatus.DIPROSES -> Color(0xFFF59E0B)
-                    LaporanStatus.SELESAI -> Color(0xFF10B981)
-                    LaporanStatus.DITOLAK -> Color(0xFFEF4444)
+                    LaporanStatus.BARU -> MaterialTheme.colorScheme.primary
+                    LaporanStatus.DIPROSES -> MaterialTheme.colorScheme.tertiary
+                    LaporanStatus.SELESAI -> MaterialTheme.colorScheme.secondary
+                    LaporanStatus.DITOLAK -> MaterialTheme.colorScheme.error
                 }
 
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = statusColor.copy(alpha = 0.15f)),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = laporan.status.name,
-                        color = statusColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
+                StatusPill(text = laporan.status.name, color = statusColor)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -443,7 +396,7 @@ fun LaporanItemRow(laporan: Laporan) {
                     Text(
                         text = "Koordinat Lokasi: ${laporan.latitude}, ${laporan.longitude}",
                         fontSize = 11.sp,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
 
@@ -468,7 +421,7 @@ fun LaporanItemRow(laporan: Laporan) {
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(12.dp)
                             ) {
                                 Text("Proses Tugas", fontSize = 12.sp)
                             }
@@ -485,10 +438,10 @@ fun LaporanItemRow(laporan: Laporan) {
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary, contentColor = MaterialTheme.colorScheme.onSecondary)
                             ) {
-                                Text("Selesaikan Tugas", fontSize = 12.sp, color = Color.White)
+                                Text("Selesaikan Tugas", fontSize = 12.sp)
                             }
                         }
 
@@ -504,8 +457,8 @@ fun LaporanItemRow(laporan: Laporan) {
                                 }
                             },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
                             Text("Tolak", fontSize = 12.sp)
                         }
@@ -624,7 +577,7 @@ fun PetugasAbsensiTab(profile: Profile) {
                     onClick = { selectedStatus = ShiftStatus.MASUK },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (selectedStatus == ShiftStatus.MASUK) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                        containerColor = if (selectedStatus == ShiftStatus.MASUK) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
                     ),
                     shape = RoundedCornerShape(12.dp)
                 ) {
@@ -635,7 +588,7 @@ fun PetugasAbsensiTab(profile: Profile) {
                     onClick = { selectedStatus = ShiftStatus.KELUAR },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (selectedStatus == ShiftStatus.KELUAR) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f)
+                        containerColor = if (selectedStatus == ShiftStatus.KELUAR) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
                     ),
                     shape = RoundedCornerShape(12.dp)
                 ) {
@@ -1022,7 +975,7 @@ fun PetugasChatTab(profile: Profile) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(activeContact!!.nama, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text(activeContact!!.alamat ?: "Warga", fontSize = 12.sp, color = Color.Gray)
+                        Text(activeContact!!.alamat ?: "Warga", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                     }
                 }
             }
@@ -1041,20 +994,21 @@ fun PetugasChatTab(profile: Profile) {
                     ) {
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isMyMsg) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
+                                containerColor = if (isMyMsg) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                             ),
                             shape = RoundedCornerShape(
-                                topStart = 12.dp,
-                                topEnd = 12.dp,
-                                bottomStart = if (isMyMsg) 12.dp else 0.dp,
-                                bottomEnd = if (isMyMsg) 0.dp else 12.dp
+                                topStart = 18.dp,
+                                topEnd = 18.dp,
+                                bottomStart = if (isMyMsg) 18.dp else 4.dp,
+                                bottomEnd = if (isMyMsg) 4.dp else 18.dp
                             ),
                             modifier = Modifier.widthIn(max = 280.dp)
                         ) {
                             Text(
                                 text = chat.pesan ?: "",
-                                modifier = Modifier.padding(12.dp),
-                                fontSize = 14.sp
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                fontSize = 14.sp,
+                                color = if (isMyMsg) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -1144,7 +1098,7 @@ fun PetugasChatTab(profile: Profile) {
                             Spacer(modifier = Modifier.width(16.dp))
                             Column {
                                 Text(resident.nama, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text(resident.noHp ?: "Tidak ada telepon", fontSize = 12.sp, color = Color.Gray)
+                                Text(resident.noHp ?: "Tidak ada telepon", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                             }
                         }
                     }
