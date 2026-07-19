@@ -79,6 +79,9 @@ object SupabaseService {
     private val _lokasiPetugas = MutableStateFlow<List<LokasiPetugas>>(emptyList())
     val lokasiPetugas: StateFlow<List<LokasiPetugas>> = _lokasiPetugas.asStateFlow()
 
+    private val _myAbsensiHariIni = MutableStateFlow<List<Absensi>>(emptyList())
+    val myAbsensiHariIni: StateFlow<List<Absensi>> = _myAbsensiHariIni.asStateFlow()
+
     private var realtimeStarted = false
 
     // true setelah app selesai mengecek apakah ada sesi login tersimpan dari
@@ -232,6 +235,18 @@ object SupabaseService {
         safeLoad("chat_pesan") { _chats.value = supa.postgrest.from("chat_pesan").select().decodeList() }
         safeLoad("notifikasi") { _notifikasi.value = supa.postgrest.from("notifikasi").select().decodeList() }
         safeLoad("lokasi_petugas") { _lokasiPetugas.value = supa.postgrest.from("lokasi_petugas").select().decodeList() }
+
+        // Absensi milik petugas yang sedang login, hari ini saja — dipakai
+        // untuk mengunci tombol matikan tracking sampai sudah absen keluar.
+        val myId = currentProfile.value?.id
+        if (myId != null) {
+            safeLoad("absensi_hari_ini") {
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                _myAbsensiHariIni.value = supa.postgrest.from("absensi")
+                    .select { filter { eq("petugas_id", myId); gte("waktu", "${today}T00:00:00") } }
+                    .decodeList()
+            }
+        }
     }
 
     /** Subscribe realtime ke semua tabel yang berubah-ubah selama sesi
@@ -313,6 +328,14 @@ object SupabaseService {
      * dan menampilkan error, karena absensi gagal tersimpan adalah hal kritis. */
     suspend fun submitAbsensi(absensi: Absensi) {
         requireClient().postgrest.from("absensi").insert(absensi)
+        try {
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+            _myAbsensiHariIni.value = client.postgrest.from("absensi")
+                .select { filter { eq("petugas_id", absensi.petugasId); gte("waktu", "${today}T00:00:00") } }
+                .decodeList()
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal refresh absensi hari ini", e)
+        }
     }
 
     // ---------------------------------------------------------------------

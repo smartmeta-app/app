@@ -113,6 +113,15 @@ fun PetugasDashboardTab(
     val myZone = zonasList.firstOrNull { it.id == profile.zonaId }
     val assignedLaporan = allLaporan.filter { it.petugasId == profile.id || it.petugasId == null }
 
+    // Cek status absen hari ini: kalau entri TERAKHIR statusnya "masuk" tanpa
+    // ada "keluar" setelahnya, berarti petugas sedang bertugas dan TIDAK
+    // BOLEH mematikan tracking sampai absen keluar dulu. Ini mencegah
+    // petugas mematikan lokasi di tengah jam kerja supaya tidak terlacak.
+    val myAbsensiHariIni by SupabaseService.myAbsensiHariIni.collectAsState()
+    val sortedAbsensi = myAbsensiHariIni.sortedBy { it.waktu ?: "" }
+    val sudahAbsenMasukBelumKeluar = sortedAbsensi.lastOrNull()?.status == ShiftStatus.MASUK
+    val trackingLocked = isTrackingEnabled && sudahAbsenMasukBelumKeluar
+
     // Location Permission Launchers
     val locationPermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -212,6 +221,10 @@ fun PetugasDashboardTab(
                         Button(
                             onClick = {
                                 if (isTrackingEnabled) {
+                                    if (trackingLocked) {
+                                        Toast.makeText(context, "Tidak bisa mematikan pelacak sebelum absen keluar.", Toast.LENGTH_LONG).show()
+                                        return@Button
+                                    }
                                     LocationService.stopService(context)
                                     onTrackingChanged(false)
                                     Toast.makeText(context, "Pelacakan dinonaktifkan.", Toast.LENGTH_SHORT).show()
@@ -232,12 +245,32 @@ fun PetugasDashboardTab(
                                     }
                                 }
                             },
+                            enabled = !trackingLocked,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isTrackingEnabled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                containerColor = if (isTrackingEnabled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
                             ),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(if (isTrackingEnabled) "Matikan" else "Aktifkan")
+                        }
+                    }
+
+                    if (trackingLocked) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Lock,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Terkunci sampai Anda absen keluar",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                            )
                         }
                     }
 
