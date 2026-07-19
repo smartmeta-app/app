@@ -82,11 +82,6 @@ object SupabaseService {
     private val _myAbsensiHariIni = MutableStateFlow<List<Absensi>>(emptyList())
     val myAbsensiHariIni: StateFlow<List<Absensi>> = _myAbsensiHariIni.asStateFlow()
 
-    // Pesan error terakhir dari refreshAll (per tabel) — supaya kelihatan
-    // langsung di UI, bukan cuma di Logcat yang tidak bisa diakses dari HP.
-    private val _lastLoadErrors = MutableStateFlow<Map<String, String>>(emptyMap())
-    val lastLoadErrors: StateFlow<Map<String, String>> = _lastLoadErrors.asStateFlow()
-
     private var realtimeStarted = false
 
     // true setelah app selesai mengecek apakah ada sesi login tersimpan dari
@@ -227,10 +222,12 @@ object SupabaseService {
         suspend fun <T> safeLoad(label: String, block: suspend () -> T) {
             try {
                 block()
-                _lastLoadErrors.value = _lastLoadErrors.value - label
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // BUKAN error sungguhan — dilempar ulang sesuai aturan
+                // structured concurrency, bukan dianggap kegagalan fetch.
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "refreshAll: gagal muat $label", e)
-                _lastLoadErrors.value = _lastLoadErrors.value + (label to (e.message ?: e.toString()))
             }
         }
 
@@ -316,21 +313,29 @@ object SupabaseService {
                 kotlinx.coroutines.delay(8_000)
                 try {
                     _lokasiPetugas.value = client.postgrest.from("lokasi_petugas").select().decodeList()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Gagal polling lokasi_petugas", e)
                 }
                 try {
                     _chats.value = client.postgrest.from("chat_pesan").select().decodeList()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Gagal polling chat_pesan", e)
                 }
                 try {
                     _laporan.value = client.postgrest.from("laporan").select().decodeList()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Gagal polling laporan", e)
                 }
                 try {
                     _profiles.value = client.postgrest.from("profiles").select().decodeList()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Gagal polling profiles", e)
                 }
