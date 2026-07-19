@@ -204,17 +204,34 @@ object SupabaseService {
     }
 
     /** Muat ulang semua data referensi & transaksi sekali saja (dipanggil
-     * otomatis setelah login, dan bisa dipanggil manual untuk pull-to-refresh). */
+     * otomatis setelah login, dan bisa dipanggil manual untuk pull-to-refresh).
+     *
+     * SEBELUMNYA fungsi ini mengambil tabel satu-per-satu secara berurutan
+     * TANPA try/catch masing-masing — kalau satu tabel gagal (RLS, kolom
+     * hilang, dll), exception-nya menghentikan seluruh fungsi dan semua
+     * tabel SETELAHNYA (termasuk lokasi_petugas, paling akhir dalam urutan)
+     * jadi ikut tidak pernah kemuat sama sekali. Sekarang tiap tabel
+     * independen: satu gagal, yang lain tetap coba dimuat, dan errornya
+     * dicatat per tabel supaya gampang dilacak. */
     suspend fun refreshAll() {
         val supa = requireClient()
-        _zonas.value = supa.postgrest.from("zonas").select().decodeList()
-        _profiles.value = supa.postgrest.from("profiles").select().decodeList()
-        _laporan.value = supa.postgrest.from("laporan").select().decodeList()
-        _bankSampahJenis.value = supa.postgrest.from("bank_sampah_jenis").select().decodeList()
-        _transactions.value = supa.postgrest.from("bank_sampah_transaksi").select().decodeList()
-        _chats.value = supa.postgrest.from("chat_pesan").select().decodeList()
-        _notifikasi.value = supa.postgrest.from("notifikasi").select().decodeList()
-        _lokasiPetugas.value = supa.postgrest.from("lokasi_petugas").select().decodeList()
+
+        suspend fun <T> safeLoad(label: String, block: suspend () -> T) {
+            try {
+                block()
+            } catch (e: Exception) {
+                Log.e(TAG, "refreshAll: gagal muat $label", e)
+            }
+        }
+
+        safeLoad("zonas") { _zonas.value = supa.postgrest.from("zonas").select().decodeList() }
+        safeLoad("profiles") { _profiles.value = supa.postgrest.from("profiles").select().decodeList() }
+        safeLoad("laporan") { _laporan.value = supa.postgrest.from("laporan").select().decodeList() }
+        safeLoad("bank_sampah_jenis") { _bankSampahJenis.value = supa.postgrest.from("bank_sampah_jenis").select().decodeList() }
+        safeLoad("bank_sampah_transaksi") { _transactions.value = supa.postgrest.from("bank_sampah_transaksi").select().decodeList() }
+        safeLoad("chat_pesan") { _chats.value = supa.postgrest.from("chat_pesan").select().decodeList() }
+        safeLoad("notifikasi") { _notifikasi.value = supa.postgrest.from("notifikasi").select().decodeList() }
+        safeLoad("lokasi_petugas") { _lokasiPetugas.value = supa.postgrest.from("lokasi_petugas").select().decodeList() }
     }
 
     /** Subscribe realtime ke semua tabel yang berubah-ubah selama sesi

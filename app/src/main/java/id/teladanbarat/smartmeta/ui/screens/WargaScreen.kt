@@ -208,6 +208,38 @@ fun WargaMapTab(profile: Profile) {
                     },
                     style = MaterialTheme.typography.bodySmall
                 )
+
+                // Panel diagnostik — supaya bisa dicek langsung dari HP tanpa
+                // perlu buka Supabase SQL Editor. Kalau "Data mentah lokasi"
+                // di sini 0 padahal petugas sudah aktif tracking, artinya
+                // app warga ini memang tidak menerima data dari server (soal
+                // realtime/RLS/jaringan). Kalau angkanya >0 tapi TETAP tidak
+                // ada marker di peta, berarti bug-nya di render peta, bukan
+                // di data.
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Diagnostik — profil petugas: ${activePetugas.size} · data mentah lokasi: ${liveLocations.size} · cocok & tampil: ${petugasWithDistance.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                )
+
+                val coroutineScope = rememberCoroutineScope()
+                var isRefreshing by remember { mutableStateOf(false) }
+                TextButton(
+                    onClick = {
+                        isRefreshing = true
+                        coroutineScope.launch {
+                            try {
+                                SupabaseService.refreshAll()
+                            } finally {
+                                isRefreshing = false
+                            }
+                        }
+                    },
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(if (isRefreshing) "Memuat ulang..." else "Muat Ulang Sekarang", fontSize = 12.sp)
+                }
             }
         }
 
