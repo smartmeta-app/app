@@ -236,14 +236,21 @@ object SupabaseService {
         safeLoad("notifikasi") { _notifikasi.value = supa.postgrest.from("notifikasi").select().decodeList() }
         safeLoad("lokasi_petugas") { _lokasiPetugas.value = supa.postgrest.from("lokasi_petugas").select().decodeList() }
 
-        // Absensi milik petugas yang sedang login, hari ini saja — dipakai
-        // untuk mengunci tombol matikan tracking sampai sudah absen keluar.
+        // Absensi terbaru milik petugas yang login — dipakai untuk mengunci
+        // tombol matikan tracking sampai sudah absen keluar. SEBELUMNYA di
+        // sini membandingkan tanggal pakai waktu lokal HP ("yyyy-MM-dd")
+        // terhadap kolom timestamptz yang tersimpan UTC — di jam-jam awal
+        // hari (WIB = UTC+7), tanggal lokal sudah "besok" sementara datanya
+        // di database masih tercatat "hari sebelumnya" di UTC, jadi filter
+        // tanggal itu selalu meleset dan absensi dianggap tidak ada. Sekarang
+        // cukup ambil entri absensi TERBARU (tanpa filter tanggal sama
+        // sekali) dan urutkan turun — lebih sederhana dan tidak kena
+        // masalah timezone semacam itu.
         val myId = currentProfile.value?.id
         if (myId != null) {
-            safeLoad("absensi_hari_ini") {
-                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+            safeLoad("absensi_terbaru") {
                 _myAbsensiHariIni.value = supa.postgrest.from("absensi")
-                    .select { filter { eq("petugas_id", myId); gte("waktu", "${today}T00:00:00") } }
+                    .select { filter { eq("petugas_id", myId) }; order("waktu", io.github.jan.supabase.postgrest.query.Order.DESCENDING); limit(1) }
                     .decodeList()
             }
         }
@@ -329,12 +336,15 @@ object SupabaseService {
     suspend fun submitAbsensi(absensi: Absensi) {
         requireClient().postgrest.from("absensi").insert(absensi)
         try {
-            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
             _myAbsensiHariIni.value = client.postgrest.from("absensi")
-                .select { filter { eq("petugas_id", absensi.petugasId); gte("waktu", "${today}T00:00:00") } }
+                .select {
+                    filter { eq("petugas_id", absensi.petugasId) }
+                    order("waktu", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                    limit(1)
+                }
                 .decodeList()
         } catch (e: Exception) {
-            Log.e(TAG, "Gagal refresh absensi hari ini", e)
+            Log.e(TAG, "Gagal refresh absensi terbaru", e)
         }
     }
 
