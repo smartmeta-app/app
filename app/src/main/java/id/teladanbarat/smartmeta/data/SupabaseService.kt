@@ -82,6 +82,11 @@ object SupabaseService {
     private val _myAbsensiHariIni = MutableStateFlow<List<Absensi>>(emptyList())
     val myAbsensiHariIni: StateFlow<List<Absensi>> = _myAbsensiHariIni.asStateFlow()
 
+    // Pesan error terakhir dari refreshAll (per tabel) — supaya kelihatan
+    // langsung di UI, bukan cuma di Logcat yang tidak bisa diakses dari HP.
+    private val _lastLoadErrors = MutableStateFlow<Map<String, String>>(emptyMap())
+    val lastLoadErrors: StateFlow<Map<String, String>> = _lastLoadErrors.asStateFlow()
+
     private var realtimeStarted = false
 
     // true setelah app selesai mengecek apakah ada sesi login tersimpan dari
@@ -222,8 +227,10 @@ object SupabaseService {
         suspend fun <T> safeLoad(label: String, block: suspend () -> T) {
             try {
                 block()
+                _lastLoadErrors.value = _lastLoadErrors.value - label
             } catch (e: Exception) {
                 Log.e(TAG, "refreshAll: gagal muat $label", e)
+                _lastLoadErrors.value = _lastLoadErrors.value + (label to (e.message ?: e.toString()))
             }
         }
 
@@ -297,17 +304,35 @@ object SupabaseService {
             }
         }
 
-        // Jaring pengaman: selain realtime websocket di atas, lokasi petugas
-        // juga di-refresh manual tiap 10 detik. Realtime websocket bisa putus
-        // diam-diam di kondisi jaringan tertentu tanpa error yang kelihatan —
-        // polling ini memastikan peta warga tetap ter-update walau itu terjadi.
+        // Jaring pengaman: selain realtime websocket di atas, tabel-tabel
+        // yang sering berubah juga di-refresh manual tiap 8 detik. Realtime
+        // websocket bisa gagal tersambung diam-diam di kondisi tertentu
+        // tanpa error yang kelihatan (mis. beda proses/koneksi antara saat
+        // Auth login dan saat Realtime pertama connect) — polling ini
+        // memastikan peta, chat, dan daftar tugas tetap ter-update walau
+        // websocket-nya bermasalah, dengan jeda tunggu maksimal 8 detik.
         serviceScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(10_000)
+                kotlinx.coroutines.delay(8_000)
                 try {
                     _lokasiPetugas.value = client.postgrest.from("lokasi_petugas").select().decodeList()
                 } catch (e: Exception) {
                     Log.e(TAG, "Gagal polling lokasi_petugas", e)
+                }
+                try {
+                    _chats.value = client.postgrest.from("chat_pesan").select().decodeList()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Gagal polling chat_pesan", e)
+                }
+                try {
+                    _laporan.value = client.postgrest.from("laporan").select().decodeList()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Gagal polling laporan", e)
+                }
+                try {
+                    _profiles.value = client.postgrest.from("profiles").select().decodeList()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Gagal polling profiles", e)
                 }
             }
         }

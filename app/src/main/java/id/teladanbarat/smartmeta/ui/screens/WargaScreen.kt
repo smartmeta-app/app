@@ -214,6 +214,17 @@ fun WargaMapTab(profile: Profile) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
                 )
+                val loadErrors by SupabaseService.lastLoadErrors.collectAsState()
+                if (loadErrors.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    loadErrors.forEach { (table, error) ->
+                        Text(
+                            text = "Error $table: $error",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             }
         }
 

@@ -23,6 +23,7 @@ import id.teladanbarat.smartmeta.data.SupabaseService
 import id.teladanbarat.smartmeta.data.UserRole
 import id.teladanbarat.smartmeta.service.LocationService
 import id.teladanbarat.smartmeta.ui.screens.LoginScreen
+import id.teladanbarat.smartmeta.ui.screens.PermissionGateScreen
 import id.teladanbarat.smartmeta.ui.screens.PetugasScreen
 import id.teladanbarat.smartmeta.ui.screens.WargaScreen
 import id.teladanbarat.smartmeta.ui.theme.MyApplicationTheme
@@ -145,11 +146,16 @@ fun MainAppContent() {
     }
 
     if (currentProfile == null) {
-        LoginScreen(
-            onLoginSuccess = { profile ->
-                // Handled internally by SupabaseService.login updating the state flow
-            }
-        )
+        var permissionsGranted by remember { mutableStateOf(false) }
+        if (!permissionsGranted) {
+            PermissionGateScreen(onAllGranted = { permissionsGranted = true })
+        } else {
+            LoginScreen(
+                onLoginSuccess = { profile ->
+                    // Handled internally by SupabaseService.login updating the state flow
+                }
+            )
+        }
     } else {
         when (currentProfile!!.role) {
             UserRole.PETUGAS -> {

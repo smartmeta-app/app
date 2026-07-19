@@ -113,14 +113,15 @@ fun PetugasDashboardTab(
     val myZone = zonasList.firstOrNull { it.id == profile.zonaId }
     val assignedLaporan = allLaporan.filter { it.petugasId == profile.id || it.petugasId == null }
 
-    // Cek status absen hari ini: kalau entri TERAKHIR statusnya "masuk" tanpa
-    // ada "keluar" setelahnya, berarti petugas sedang bertugas dan TIDAK
-    // BOLEH mematikan tracking sampai absen keluar dulu. Ini mencegah
-    // petugas mematikan lokasi di tengah jam kerja supaya tidak terlacak.
+    // Begitu petugas menyalakan tracking, tombol Matikan langsung TERKUNCI
+    // dan baru bisa dipakai lagi setelah dia absen KELUAR. Sebelumnya kunci
+    // ini cuma aktif kalau status absen terakhir "masuk" — sekarang kuncinya
+    // berlaku selama tracking menyala, apa pun riwayat absennya, dan cuma
+    // lepas kalau entri absen PALING TERAKHIR berstatus "keluar".
     val myAbsensiHariIni by SupabaseService.myAbsensiHariIni.collectAsState()
     val sortedAbsensi = myAbsensiHariIni.sortedBy { it.waktu ?: "" }
-    val sudahAbsenMasukBelumKeluar = sortedAbsensi.lastOrNull()?.status == ShiftStatus.MASUK
-    val trackingLocked = isTrackingEnabled && sudahAbsenMasukBelumKeluar
+    val sudahAbsenKeluar = sortedAbsensi.lastOrNull()?.status == ShiftStatus.KELUAR
+    val trackingLocked = isTrackingEnabled && !sudahAbsenKeluar
 
     // Location Permission Launchers
     val locationPermissionsLauncher = rememberLauncherForActivityResult(
