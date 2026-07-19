@@ -18,16 +18,24 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import id.teladanbarat.smartmeta.data.SupabaseService
 import id.teladanbarat.smartmeta.data.UserRole
+import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class LocationService : Service() {
 
@@ -43,6 +51,15 @@ class LocationService : Service() {
 
         var isRunning = false
             private set
+
+        // Status pengiriman lokasi terakhir, supaya bisa ditampilkan di UI
+        // dashboard petugas — tanpa ini, satu-satunya cara cek apakah lokasi
+        // benar-benar terkirim adalah lihat logcat lewat komputer, yang tidak
+        // praktis kalau developer/petugas cuma pegang HP.
+        private val _lastUpdateStatus = MutableStateFlow("Belum ada update lokasi terkirim")
+        val lastUpdateStatus: StateFlow<String> = _lastUpdateStatus.asStateFlow()
+
+        private fun timeNow() = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
 
         fun startService(context: Context) {
             val intent = Intent(context, LocationService::class.java)
@@ -129,6 +146,27 @@ class LocationService : Service() {
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             try {
+                // Ambil satu fix GPS SEGERA saat service baru menyala, supaya
+                // lokasi pertama langsung terkirim — tidak perlu menunggu
+                // sampai 15-20 detik update periodik pertama (yang kadang
+                // butuh lebih lama lagi kalau sinyal GPS lemah).
+                val currentLocationRequest = CurrentLocationRequest.Builder()
+                    .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                    .build()
+                fusedLocationClient?.getCurrentLocation(currentLocationRequest, CancellationTokenSource().token)
+                    ?.addOnSuccessListener { location ->
+                        if (location != null) {
+                            onLocationUpdated(location)
+                        } else {
+                            _lastUpdateStatus.value = "GPS belum dapat titik awal (${timeNow()}). Pastikan lokasi HP aktif."
+                            Log.e(TAG, "getCurrentLocation() null — GPS/network location kemungkinan mati.")
+                        }
+                    }
+                    ?.addOnFailureListener { e ->
+                        _lastUpdateStatus.value = "Gagal ambil GPS awal: ${e.message}"
+                        Log.e(TAG, "getCurrentLocation() gagal", e)
+                    }
+
                 fusedLocationClient?.requestLocationUpdates(
                     locationRequest,
                     locationCallback!!,
@@ -136,9 +174,11 @@ class LocationService : Service() {
                 )
             } catch (unlikely: SecurityException) {
                 Log.e(TAG, "Lost location permissions. Could not request updates. $unlikely")
+                _lastUpdateStatus.value = "Izin lokasi dicabut, tracking berhenti."
             }
         } else {
             Log.e(TAG, "ACCESS_FINE_LOCATION permission not granted.")
+            _lastUpdateStatus.value = "Izin lokasi (ACCESS_FINE_LOCATION) belum diberikan."
         }
     }
 
@@ -153,14 +193,17 @@ class LocationService : Service() {
             serviceScope.launch {
                 try {
                     SupabaseService.updateLiveLocation(petugasId, lat, lng)
+                    _lastUpdateStatus.value = "Terkirim ${timeNow()} (${"%.5f".format(lat)}, ${"%.5f".format(lng)})"
                 } catch (e: Exception) {
                     // Jangan crash service — cukup log, update lokasi berikutnya akan
                     // dicoba lagi otomatis 15-30 detik kemudian.
                     Log.e(TAG, "Gagal mengirim update lokasi ke Supabase", e)
+                    _lastUpdateStatus.value = "Gagal kirim ke server (${timeNow()}): ${e.message}"
                 }
             }
         } else {
             Log.i(TAG, "No logged in petugas or user is citizen. Skipping update.")
+            _lastUpdateStatus.value = "Tidak ada sesi petugas aktif — coba logout & login ulang."
         }
     }
 

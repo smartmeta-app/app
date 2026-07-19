@@ -22,6 +22,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -80,8 +81,48 @@ object SupabaseService {
 
     private var realtimeStarted = false
 
+    // true setelah app selesai mengecek apakah ada sesi login tersimpan dari
+    // sebelumnya. UI menunggu ini true dulu sebelum memutuskan tampilkan
+    // LoginScreen atau langsung ke dashboard — supaya user tidak "kelihatan"
+    // logout sekilas padahal sebenarnya cuma masih proses pengecekan.
+    private val _sessionCheckDone = MutableStateFlow(false)
+    val sessionCheckDone: StateFlow<Boolean> = _sessionCheckDone.asStateFlow()
+
     init {
         initializeClient()
+    }
+
+    /** Dipanggil sekali saat app baru dibuka (MainActivity). supabase-kt
+     * secara default SUDAH menyimpan token sesi ke penyimpanan lokal HP
+     * setiap kali login berhasil ("ingat akun" otomatis dari librarynya) —
+     * masalahnya sebelumnya app tidak pernah CEK sesi tersimpan itu saat
+     * dibuka lagi, jadi selalu diarahkan ke LoginScreen walau sebenarnya
+     * masih punya sesi valid. Fungsi ini menutup celah itu. */
+    suspend fun restoreSession() {
+        if (!isConfigured) {
+            _sessionCheckDone.value = true
+            return
+        }
+        try {
+            // Tunggu sampai supabase-kt selesai memuat sesi tersimpan dari
+            // disk (kalau ada) — statusnya "Initializing" sesaat lalu
+            // berubah jadi Authenticated/NotAuthenticated.
+            val status = client.auth.sessionStatus
+                .first { it !is io.github.jan.supabase.auth.status.SessionStatus.Initializing }
+
+            val userId = client.auth.currentUserOrNull()?.id
+            if (status is io.github.jan.supabase.auth.status.SessionStatus.Authenticated && userId != null) {
+                val profile = fetchProfileFromSupabase(userId)
+                _currentProfile.value = profile
+                refreshAll()
+                startRealtimeSync()
+                Log.i(TAG, "Sesi login sebelumnya berhasil dipulihkan untuk ${profile.nama}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal memulihkan sesi tersimpan, user perlu login manual.", e)
+        } finally {
+            _sessionCheckDone.value = true
+        }
     }
 
     private fun initializeClient() {
@@ -99,7 +140,14 @@ object SupabaseService {
 
         client = createSupabaseClient(supabaseUrl = url, supabaseKey = key) {
             install(Postgrest)
-            install(Auth)
+            install(Auth) {
+                // Eksplisit dinyalakan (walau ini default bawaan library) supaya
+                // jelas dan tidak bergantung pada asumsi default versi tertentu:
+                // sesi login disimpan ke penyimpanan lokal HP dan token
+                // di-refresh otomatis sebelum kedaluwarsa, tanpa perlu login ulang.
+                alwaysAutoRefresh = true
+                autoLoadFromStorage = true
+            }
             install(Realtime)
             install(Storage)
         }
@@ -207,6 +255,21 @@ object SupabaseService {
             // Sinkronkan juga saldo poin akun yang sedang login (mis. setelah admin verifikasi).
             currentProfile.value?.id?.let { id ->
                 _profiles.value.firstOrNull { it.id == id }?.let { _currentProfile.value = it }
+            }
+        }
+
+        // Jaring pengaman: selain realtime websocket di atas, lokasi petugas
+        // juga di-refresh manual tiap 10 detik. Realtime websocket bisa putus
+        // diam-diam di kondisi jaringan tertentu tanpa error yang kelihatan —
+        // polling ini memastikan peta warga tetap ter-update walau itu terjadi.
+        serviceScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(10_000)
+                try {
+                    _lokasiPetugas.value = client.postgrest.from("lokasi_petugas").select().decodeList()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Gagal polling lokasi_petugas", e)
+                }
             }
         }
     }

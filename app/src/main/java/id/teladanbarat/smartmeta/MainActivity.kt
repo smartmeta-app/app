@@ -119,7 +119,30 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainAppContent() {
     val currentProfile by SupabaseService.currentProfile.collectAsState()
+    val sessionCheckDone by SupabaseService.sessionCheckDone.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+
+    // Cek sekali saat app baru dibuka: apakah ada sesi login tersimpan dari
+    // sebelumnya? Kalau ada & masih valid, langsung masuk dashboard tanpa
+    // perlu isi email/password lagi ("ingat akun").
+    LaunchedEffect(Unit) {
+        SupabaseService.restoreSession()
+    }
+
+    if (!sessionCheckDone) {
+        // Layar tunggu singkat selama proses cek sesi — biasanya sepersekian
+        // detik, tapi tetap perlu ditampilkan supaya tidak "kelihatan"
+        // LoginScreen sekilas sebelum berpindah ke dashboard.
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = androidx.compose.ui.Alignment.Center
+        ) {
+            androidx.compose.material3.CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        return
+    }
 
     if (currentProfile == null) {
         LoginScreen(
