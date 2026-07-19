@@ -68,6 +68,11 @@ fun SmartMetaTopBar(
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
+                Text(
+                    text = "build ${id.teladanbarat.smartmeta.BuildConfig.BUILD_TAG.takeLast(6)}",
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                )
             }
             ThemeToggleButton()
             IconButton(onClick = onLogout) {
