@@ -162,8 +162,14 @@ fun WargaMapTab(profile: Profile) {
 
     // Titik jatuh terakhir kalau GPS warga belum berhasil didapat sama sekali
     // (misal izin belum diberikan) — dekat Medan, bukan Jakarta seperti kode lama.
-    val fallbackLat = -6.1751
-    val fallbackLng = 106.8650 // TODO: ganti ke koordinat Kelurahan Teladan Barat sungguhan kalau sudah tahu titik pastinya
+    // Sebelumnya angka ini kebetulan koordinat Jakarta (padahal komentarnya
+    // bilang Medan) — jadi kalau GPS warga belum dapat fix (izin baru
+    // diberikan / GPS lambat / di dalam ruangan), peta jatuh & ter-zoom di
+    // Jakarta sementara marker petugas ada di Medan, sehingga petugas
+    // terlihat "hilang" karena posisinya jauh di luar layar peta.
+    // Diganti ke titik di kawasan Teladan Barat, Medan.
+    val fallbackLat = 3.5735
+    val fallbackLng = 98.6809
     val centerLat = myLocation?.latitude ?: fallbackLat
     val centerLng = myLocation?.longitude ?: fallbackLng
 

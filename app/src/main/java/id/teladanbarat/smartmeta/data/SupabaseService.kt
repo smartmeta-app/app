@@ -142,6 +142,19 @@ object SupabaseService {
         }
 
         client = createSupabaseClient(supabaseUrl = url, supabaseKey = key) {
+            // Tanpa ini, kotlinx.serialization melempar exception dan
+            // MEMBATALKAN SELURUH decodeList() kalau satu saja kolom di
+            // tabel Supabase tidak dideklarasikan di data class Kotlin-nya
+            // (persis yang terjadi pada lokasi_petugas karena kolom "id"
+            // sebelumnya tidak ada di model). Dengan ignoreUnknownKeys,
+            // kolom yang belum/tidak dipetakan cukup diabaikan, bukan
+            // menggagalkan seluruh pemuatan tabel tersebut.
+            defaultSerializer = io.github.jan.supabase.serializer.KotlinXSerializer(
+                kotlinx.serialization.json.Json {
+                    ignoreUnknownKeys = true
+                    encodeDefaults = true
+                }
+            )
             install(Postgrest)
             install(Auth) {
                 // Eksplisit dinyalakan (walau ini default bawaan library) supaya

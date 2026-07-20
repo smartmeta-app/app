@@ -69,6 +69,15 @@ data class Profile(
 
 @Serializable
 data class LokasiPetugas(
+    // Kolom "id" (primary key uuid) hampir pasti ada di tabel Supabase-nya,
+    // tapi sebelumnya TIDAK dideklarasikan di sini. kotlinx.serialization
+    // secara default melempar exception kalau ketemu key JSON yang tidak
+    // dikenal di data class (bukan diabaikan diam-diam) — jadi SETIAP kali
+    // decodeList() dipanggil untuk tabel lokasi_petugas, seluruh baris gagal
+    // di-decode sekaligus, dan _lokasiPetugas tidak pernah ter-update sama
+    // sekali. Inilah sebabnya pin petugas tidak pernah muncul di peta warga
+    // meskipun tracking sudah aktif dan datanya ada di database.
+    @SerialName("id") val id: String? = null,
     @SerialName("petugas_id") val petugasId: String,
     @SerialName("latitude") val latitude: Double,
     @SerialName("longitude") val longitude: Double,
